@@ -1,27 +1,22 @@
 """PPMI-based visualizations for Codeforces tags.
 
-This script loads `filtered_problems.csv` from ``data/problems`` which contains
-Codeforces problem metadata. It assumes there are exactly 37 unique tags. It
-produces a
-co-occurrence matrix, a PPMI matrix, and two visualizations:
-1. UMAP projection
-2. Force-directed graph
+This script loads ``filtered_problems.csv`` from ``data/problems`` which
+contains Codeforces problem metadata.  It assumes **37** unique tags are
+present.  For each difficulty group as well as the entire data set the script
+produces
 
-Output files are saved under ``data/visualization/<group>``:
-- tag_list.csv
-- cooccurrence_matrix.csv
-- ppmi_matrix.csv
-- tag_coords_umap.csv
-- umap_tags_plot.png
-- force_directed_tags_plot.png
-- edges_topk.csv (optional)
+1. a co-occurrence matrix and PPMI matrix (min-max scaled)
+2. an improved force-directed graph
+3. several improved UMAP projections
+
+All outputs are stored under ``data/visualization/<group>``.
 """
 
 from __future__ import annotations
 
 import csv
 from collections import Counter
-from typing import Dict, List, Tuple
+from typing import Dict, List
 import os
 
 import matplotlib.pyplot as plt
@@ -71,7 +66,7 @@ def build_cooccurrence_matrix(tag_lists: List[List[str]], tag_to_idx: Dict[str, 
 
 
 def compute_ppmi_matrix(C: np.ndarray) -> np.ndarray:
-    """Compute PPMI matrix from co-occurrence matrix."""
+    """Compute a min-max scaled PPMI matrix."""
     total = float(C.sum())
     if total == 0:
         return np.zeros_like(C, dtype=float)
@@ -80,7 +75,8 @@ def compute_ppmi_matrix(C: np.ndarray) -> np.ndarray:
     size = C.shape[0]
     M = np.zeros((size, size), dtype=float)
 
-    with np.errstate(divide='ignore', invalid='ignore'):
+    # PMI calculation with error handling to avoid log overflow/invalid values
+    with np.errstate(divide="ignore", invalid="ignore"):
         for i in range(size):
             if row_sums[i] == 0:
                 continue
@@ -93,6 +89,11 @@ def compute_ppmi_matrix(C: np.ndarray) -> np.ndarray:
                 pmi = np.log(P_ij / (P_i * P_j))
                 if pmi > 0:
                     M[i, j] = pmi
+
+    # scale the matrix to [0, 1] for downstream weighting
+    max_val = M.max()
+    if max_val > 0:
+        M /= max_val
     return M
 
 
@@ -114,107 +115,130 @@ def run_for_group(
     """Compute matrices and visualizations for a subset of problems."""
     group_dir = os.path.join(out_root, prefix)
     os.makedirs(group_dir, exist_ok=True)
-    # 3. 공출현 행렬 생성
-    C = build_cooccurrence_matrix(tag_lists, tag_to_idx)
 
-    # 4. PPMI 행렬 계산
+    # ----- Step 1: build co-occurrence and PPMI matrices -----
+    C = build_cooccurrence_matrix(tag_lists, tag_to_idx)
     M = compute_ppmi_matrix(C)
 
-    # 5. 태그별 등장 빈도 계산
+    # ----- Step 2: tag frequencies and marker size -----
     tag_freq = compute_tag_frequency(tag_lists)
     n_problems = len(tag_lists)
-    ratios = {tag: (tag_freq.get(tag, 0) / n_problems) if n_problems else 0 for tag in tag_list}
-    marker_sizes = {tag: ratios[tag] * 1000 + 50 for tag in tag_list}
+    ratios = {t: (tag_freq.get(t, 0) / n_problems) if n_problems else 0 for t in tag_list}
+    marker_sizes = {t: ratios[t] * 1000 + 50 for t in tag_list}
 
-    # Save tag_list with frequencies
+    # save basic csv files
     tag_list_df = pd.DataFrame({
-        'tag': tag_list,
-        'freq': [tag_freq.get(t, 0) for t in tag_list],
-        'ratio': [ratios[t] for t in tag_list],
-        'marker_size': [marker_sizes[t] for t in tag_list],
+        "tag": tag_list,
+        "freq": [tag_freq.get(t, 0) for t in tag_list],
+        "ratio": [ratios[t] for t in tag_list],
+        "marker_size": [marker_sizes[t] for t in tag_list],
     })
-    tag_list_df.to_csv(os.path.join(group_dir, 'tag_list.csv'), index=False)
+    tag_list_df.to_csv(os.path.join(group_dir, "tag_list.csv"), index=False)
 
-    # Save co-occurrence matrix
-    coocc_df = pd.DataFrame(C, index=tag_list, columns=tag_list)
-    coocc_df.to_csv(os.path.join(group_dir, 'cooccurrence_matrix.csv'))
-
-    # Save PPMI matrix
-    ppmi_df = pd.DataFrame(M, index=tag_list, columns=tag_list)
-    ppmi_df.to_csv(os.path.join(group_dir, 'ppmi_matrix.csv'))
-
-    # ----------------- Visualization 1: UMAP -----------------
-    reducer = umap.UMAP(n_neighbors=10, min_dist=0.05, n_components=2, random_state=42)
-    tag_coords_umap = reducer.fit_transform(M)
-
-    coords_df = pd.DataFrame({
-        'tag': tag_list,
-        'x': tag_coords_umap[:, 0],
-        'y': tag_coords_umap[:, 1],
-        'freq': [tag_freq.get(t, 0) for t in tag_list],
-        'ratio': [ratios[t] for t in tag_list],
-        'marker_size': [marker_sizes[t] for t in tag_list],
-    })
-    coords_df.to_csv(os.path.join(group_dir, 'tag_coords_umap.csv'), index=False)
-
-    plt.figure(figsize=(8, 6))
-    scatter = plt.scatter(
-        coords_df['x'],
-        coords_df['y'],
-        s=coords_df['marker_size'],
-        c=coords_df['ratio'],
-        cmap='viridis',
-        alpha=0.8,
-        edgecolors='k',
+    pd.DataFrame(C, index=tag_list, columns=tag_list).to_csv(
+        os.path.join(group_dir, "cooccurrence_matrix.csv")
     )
-    for _, row in coords_df.iterrows():
-        plt.text(row['x'], row['y'], row['tag'], fontsize=8, ha='center', va='center')
-    plt.title('UMAP Projection of 37 Codeforces Tags (PPMI-based)')
-    plt.xlabel('UMAP 1')
-    plt.ylabel('UMAP 2')
-    cbar = plt.colorbar(scatter)
-    cbar.set_label('Frequency Ratio')
-    plt.tight_layout()
-    plt.savefig(os.path.join(group_dir, 'umap_tags_plot.png'), dpi=300)
-    plt.close()
+    pd.DataFrame(M, index=tag_list, columns=tag_list).to_csv(
+        os.path.join(group_dir, "ppmi_matrix.csv")
+    )
 
-    # ----------------- Visualization 2: Force-Directed Graph -----------------
+    # prepare a list of weighted pairs for later use
+    triu_i, triu_j = np.triu_indices_from(M, k=1)
+    pair_weights = [
+        (tag_list[i], tag_list[j], M[i, j]) for i, j in zip(triu_i, triu_j) if M[i, j] > 0
+    ]
+
+    # ========================= Improved UMAP =========================
+    # top 50 edges by weight for overlay
+    top_pairs = sorted(pair_weights, key=lambda x: x[2], reverse=True)[:50]
+    for nn in (5, 10, 15):
+        reducer = umap.UMAP(
+            n_neighbors=nn, min_dist=0.2, metric="cosine", random_state=42
+        )
+        coords = reducer.fit_transform(M)
+        coords_df = pd.DataFrame({
+            "tag": tag_list,
+            "x": coords[:, 0],
+            "y": coords[:, 1],
+            "freq": [tag_freq.get(t, 0) for t in tag_list],
+            "ratio": [ratios[t] for t in tag_list],
+            "marker_size": [marker_sizes[t] for t in tag_list],
+        })
+        coords_df.to_csv(
+            os.path.join(group_dir, f"tag_coords_umap_nn{nn}.csv"), index=False
+        )
+
+        plt.figure(figsize=(8, 6))
+        # overlay thin gray edges for strong pairs
+        for t_i, t_j, _ in top_pairs:
+            p1 = coords_df.loc[coords_df["tag"] == t_i, ["x", "y"]].values[0]
+            p2 = coords_df.loc[coords_df["tag"] == t_j, ["x", "y"]].values[0]
+            plt.plot([p1[0], p2[0]], [p1[1], p2[1]], color="gray", alpha=0.3, linewidth=0.5)
+
+        scatter = plt.scatter(
+            coords_df["x"],
+            coords_df["y"],
+            s=coords_df["marker_size"],
+            c=coords_df["ratio"],
+            cmap="viridis",
+            alpha=0.9,
+            edgecolors="k",
+        )
+        for _, row in coords_df.iterrows():
+            plt.text(row["x"], row["y"], row["tag"], fontsize=8, ha="center", va="center")
+
+        plt.colorbar(scatter, label="Frequency Ratio")
+        plt.title(
+            f"UMAP (n_neighbors={nn}, min_dist=0.2, metric='cosine')"
+        )
+        plt.tight_layout()
+        plt.savefig(os.path.join(group_dir, f"umap_tags_nn{nn}.png"), dpi=300)
+        plt.close()
+
+    # ====================== Improved Force-Directed ======================
     G = nx.Graph()
     G.add_nodes_from(tag_list)
 
-    triu_idx = np.triu_indices_from(M, k=1)
-    weights = M[triu_idx]
-    threshold = np.percentile(weights[weights > 0], 90) if np.any(weights > 0) else 0
+    weights = np.array([w for _, _, w in pair_weights])
+    threshold = np.percentile(weights, 70) if weights.size else 0
 
     edges = []
-    for i, j in zip(*triu_idx):
-        weight = M[i, j]
-        if weight > threshold:
-            edges.append((tag_list[i], tag_list[j], weight))
-            G.add_edge(tag_list[i], tag_list[j], weight=weight)
+    for t_i, t_j, w in pair_weights:
+        if w > threshold:
+            G.add_edge(t_i, t_j, weight=w)
+            edges.append((t_i, t_j, w))
 
-    if edges:
-        edge_df = pd.DataFrame(edges, columns=['tag_i', 'tag_j', 'weight'])
-        edge_df.to_csv(os.path.join(group_dir, 'edges_topk.csv'), index=False)
+    pd.DataFrame(edges, columns=["tag_i", "tag_j", "weight"]).to_csv(
+        os.path.join(group_dir, "edges_force_directed.csv"), index=False
+    )
 
-    pos = nx.spring_layout(G, weight='weight', seed=42, k=0.5)
+    pos = nx.spring_layout(G, weight="weight", seed=42, k=1)
+    deg_cent = nx.degree_centrality(G)
+
+    node_sizes = [marker_sizes[n] for n in G.nodes]
+    node_colors = [deg_cent[n] for n in G.nodes]
+    edge_weights = [G[u][v]["weight"] for u, v in G.edges]
+    max_w = max(edge_weights) if edge_weights else 1
+    edge_widths = [np.sqrt(w / max_w) * 4 for w in edge_weights]
 
     plt.figure(figsize=(8, 6))
-    node_sizes = [marker_sizes[tag] for tag in G.nodes]
-    edge_weights = [G[u][v]['weight'] for u, v in G.edges]
-    if edge_weights:
-        max_w = max(edge_weights)
-        edge_widths = [w * 5 / max_w for w in edge_weights]
-    else:
-        edge_widths = []
-
-    nx.draw_networkx_nodes(G, pos, node_size=node_sizes, node_color='skyblue', edgecolors='black')
+    nodes = nx.draw_networkx_nodes(
+        G,
+        pos,
+        node_size=node_sizes,
+        node_color=node_colors,
+        cmap="cool",
+        edgecolors="black",
+    )
     nx.draw_networkx_edges(G, pos, width=edge_widths, alpha=0.6)
     nx.draw_networkx_labels(G, pos, font_size=8)
-    plt.title('Force-Directed Layout of 37 Codeforces Tags (PPMI-based)')
-    plt.axis('off')
+    plt.colorbar(nodes, label="Degree Centrality")
+    plt.title("Force-Directed Layout of 37 Codeforces Tags (PPMI, thresh=70%)")
+    plt.axis("off")
     plt.tight_layout()
-    plt.savefig(os.path.join(group_dir, 'force_directed_tags_plot.png'), dpi=300)
+    plt.savefig(
+        os.path.join(group_dir, "force_directed_tags_improved.png"), dpi=300
+    )
     plt.close()
 
 
@@ -240,7 +264,10 @@ def main() -> None:
     tag_list = build_tag_list(df['tags'])
     tag_to_idx = {tag: idx for idx, tag in enumerate(tag_list)}
 
-    # 3. 난이도 그룹별 시각화
+    # 3. 전체 데이터 시각화
+    run_for_group(df['tags'].tolist(), tag_list, tag_to_idx, 'All', VIS_DIR)
+
+    # 4. 난이도 그룹별 시각화
     for group, df_group in df.groupby('difficulty_group'):
         safe_group = str(group).replace(' ', '_').replace('/', '_')
         run_for_group(
