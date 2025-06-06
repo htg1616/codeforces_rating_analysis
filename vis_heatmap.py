@@ -7,11 +7,29 @@ from typing import Dict, List
 import os
 
 import matplotlib.pyplot as plt
+import matplotlib as mpl
 import seaborn as sns
 import plotly.express as px
 import numpy as np
 import pandas as pd
 
+# 한글 폰트 설정 추가
+import platform
+
+# 운영체제별 기본 한글 폰트 설정
+if platform.system() == 'Windows':
+    plt.rc('font', family='Malgun Gothic')  # 윈도우의 경우 '맑은 고딕' 폰트 사용
+elif platform.system() == 'Darwin':  # macOS
+    plt.rc('font', family='AppleGothic')  # macOS의 경우 'AppleGothic' 사용
+else:  # Linux 등 기타 운영체제
+    # 나눔글꼴이나 다른 한글 폰트가 설치되어 있다면 사용
+    try:
+        plt.rc('font', family='NanumGothic')
+    except:
+        pass  # 설치된 한글 폰트가 없으면 기본값 사용
+
+# 음수 표시 문제 해결
+mpl.rcParams['axes.unicode_minus'] = False
 
 def draw_heatmap(
     M: np.ndarray,
@@ -59,6 +77,5 @@ def draw_heatmap(
         ax.add_patch(rect_bot)
 
     plt.tight_layout()
-    plt.savefig(os.path.join(out_dir, "ppmi_heatmap_top15.png"), dpi=300, bbox_inches="tight")
+    plt.savefig(os.path.join(out_dir, "ppmi_heatmap.png"), dpi=300, bbox_inches="tight")
     plt.close()
-

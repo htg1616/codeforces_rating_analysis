@@ -90,11 +90,36 @@ def run_for_group(
 
     # prepare weighted tag pairs
     triu_i, triu_j = np.triu_indices_from(M, k=1)
+    # tag_ppmi_visualization.py의 run_for_group 함수 내부 수정
+    # pair_weights 부분을 다음과 같이 변경:
+
+    # prepare weighted tag pairs using Top-K method
+    logging.info(f"  {prefix}: Top-K 간선 선택 중...")
+    ppmi_raw = M.copy()  # 원본 PPMI 행렬 사용
+    n = len(tag_list)
+    flat = ppmi_raw[np.triu_indices_from(ppmi_raw, k=1)]
+    top_k = 120  # 태그 37개면 120개가 적당
+    idx_k = np.argpartition(flat, -top_k)[-top_k:] if len(flat) > top_k else np.arange(len(flat))
+    thr = flat[idx_k].min() if len(flat) > 0 else 0
+
+    # 간선 필터링 - 임계값 이상인 것만
     pair_weights = [
-        (tag_list[i], tag_list[j], M[i, j])
-        for i, j in zip(triu_i, triu_j)
-        if M[i, j] > 0
+        (tag_list[i], tag_list[j], ppmi_raw[i, j])
+        for i in range(n)
+        for j in range(i + 1, n)
+        if ppmi_raw[i, j] >= thr and ppmi_raw[i, j] > 0
     ]
+
+    # 디버깅용 로그
+    logging.info(f"  {prefix}: 간선 수: {len(pair_weights)}, 임계값: {thr:.4f}")
+
+    # G 객체 구성 (기존 코드 그대로)
+    G = nx.Graph()
+    for t_i, t_j, w in pair_weights:
+        G.add_edge(t_i, t_j, weight=w)
+
+    # 디버깅용 추가 정보
+    logging.info(f"  {prefix}: 고립 노드 수: {sum(1 for _, d in G.degree() if d == 0)}")
 
     # ----- Build graph and Louvain clusters -----
     G = nx.Graph()
