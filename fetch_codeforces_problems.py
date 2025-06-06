@@ -3,7 +3,7 @@ import hashlib
 import os
 import random
 import time
-from typing import List, Dict
+from typing import Dict, List
 
 import requests
 from dotenv import load_dotenv
@@ -13,6 +13,10 @@ api_key = os.getenv("CODEFORCES_API_KEY")
 api_secret = os.getenv("CODEFORCES_API_SECRET")
 
 ENDPOINT = "https://codeforces.com/api/problemset.problems"
+
+# Directory to store fetched problem data
+PROBLEMS_DIR = os.path.join("data", "problems")
+os.makedirs(PROBLEMS_DIR, exist_ok=True)
 
 DIFFICULTY_GROUPS = [
     (1199, "Newbie"),
@@ -67,7 +71,8 @@ def main() -> None:
 
     top_problems = sorted_problems[:20000]
 
-    with open("filtered_problems.csv", "w", newline="", encoding="utf-8") as csvfile:
+    out_path = os.path.join(PROBLEMS_DIR, "filtered_problems.csv")
+    with open(out_path, "w", newline="", encoding="utf-8") as csvfile:
         fieldnames = [
             "problem_id",
             "name",

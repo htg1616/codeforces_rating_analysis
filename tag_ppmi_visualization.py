@@ -1,19 +1,20 @@
 """PPMI-based visualizations for Codeforces tags.
 
-This script loads `filtered_problems.csv` which contains Codeforces problem
-metadata. It assumes there are exactly 37 unique tags. It produces a
+This script loads `filtered_problems.csv` from ``data/problems`` which contains
+Codeforces problem metadata. It assumes there are exactly 37 unique tags. It
+produces a
 co-occurrence matrix, a PPMI matrix, and two visualizations:
 1. UMAP projection
 2. Force-directed graph
 
-Output files (per difficulty group):
-- tag_list_<group>.csv
-- cooccurrence_matrix_<group>.csv
-- ppmi_matrix_<group>.csv
-- tag_coords_umap_<group>.csv
-- umap_tags_plot_<group>.png
-- force_directed_tags_plot_<group>.png
-- edges_topk_<group>.csv (optional)
+Output files are saved under ``data/visualization/<group>``:
+- tag_list.csv
+- cooccurrence_matrix.csv
+- ppmi_matrix.csv
+- tag_coords_umap.csv
+- umap_tags_plot.png
+- force_directed_tags_plot.png
+- edges_topk.csv (optional)
 """
 
 from __future__ import annotations
@@ -21,12 +22,18 @@ from __future__ import annotations
 import csv
 from collections import Counter
 from typing import Dict, List, Tuple
+import os
 
 import matplotlib.pyplot as plt
 import networkx as nx
 import numpy as np
 import pandas as pd
 import umap
+
+# Paths
+PROBLEMS_PATH = os.path.join("data", "problems", "filtered_problems.csv")
+VIS_DIR = os.path.join("data", "visualization")
+os.makedirs(VIS_DIR, exist_ok=True)
 
 
 # ------------------------- Helper Functions -------------------------
@@ -97,8 +104,16 @@ def compute_tag_frequency(tag_lists: List[List[str]]) -> Counter:
     return counter
 
 
-def run_for_group(tag_lists: List[List[str]], tag_list: List[str], tag_to_idx: Dict[str, int], prefix: str) -> None:
+def run_for_group(
+    tag_lists: List[List[str]],
+    tag_list: List[str],
+    tag_to_idx: Dict[str, int],
+    prefix: str,
+    out_root: str,
+) -> None:
     """Compute matrices and visualizations for a subset of problems."""
+    group_dir = os.path.join(out_root, prefix)
+    os.makedirs(group_dir, exist_ok=True)
     # 3. 공출현 행렬 생성
     C = build_cooccurrence_matrix(tag_lists, tag_to_idx)
 
@@ -118,15 +133,15 @@ def run_for_group(tag_lists: List[List[str]], tag_list: List[str], tag_to_idx: D
         'ratio': [ratios[t] for t in tag_list],
         'marker_size': [marker_sizes[t] for t in tag_list],
     })
-    tag_list_df.to_csv(f'tag_list_{prefix}.csv', index=False)
+    tag_list_df.to_csv(os.path.join(group_dir, 'tag_list.csv'), index=False)
 
     # Save co-occurrence matrix
     coocc_df = pd.DataFrame(C, index=tag_list, columns=tag_list)
-    coocc_df.to_csv(f'cooccurrence_matrix_{prefix}.csv')
+    coocc_df.to_csv(os.path.join(group_dir, 'cooccurrence_matrix.csv'))
 
     # Save PPMI matrix
     ppmi_df = pd.DataFrame(M, index=tag_list, columns=tag_list)
-    ppmi_df.to_csv(f'ppmi_matrix_{prefix}.csv')
+    ppmi_df.to_csv(os.path.join(group_dir, 'ppmi_matrix.csv'))
 
     # ----------------- Visualization 1: UMAP -----------------
     reducer = umap.UMAP(n_neighbors=10, min_dist=0.05, n_components=2, random_state=42)
@@ -140,7 +155,7 @@ def run_for_group(tag_lists: List[List[str]], tag_list: List[str], tag_to_idx: D
         'ratio': [ratios[t] for t in tag_list],
         'marker_size': [marker_sizes[t] for t in tag_list],
     })
-    coords_df.to_csv(f'tag_coords_umap_{prefix}.csv', index=False)
+    coords_df.to_csv(os.path.join(group_dir, 'tag_coords_umap.csv'), index=False)
 
     plt.figure(figsize=(8, 6))
     scatter = plt.scatter(
@@ -160,7 +175,7 @@ def run_for_group(tag_lists: List[List[str]], tag_list: List[str], tag_to_idx: D
     cbar = plt.colorbar(scatter)
     cbar.set_label('Frequency Ratio')
     plt.tight_layout()
-    plt.savefig(f'umap_tags_plot_{prefix}.png', dpi=300)
+    plt.savefig(os.path.join(group_dir, 'umap_tags_plot.png'), dpi=300)
     plt.close()
 
     # ----------------- Visualization 2: Force-Directed Graph -----------------
@@ -180,7 +195,7 @@ def run_for_group(tag_lists: List[List[str]], tag_list: List[str], tag_to_idx: D
 
     if edges:
         edge_df = pd.DataFrame(edges, columns=['tag_i', 'tag_j', 'weight'])
-        edge_df.to_csv(f'edges_topk_{prefix}.csv', index=False)
+        edge_df.to_csv(os.path.join(group_dir, 'edges_topk.csv'), index=False)
 
     pos = nx.spring_layout(G, weight='weight', seed=42, k=0.5)
 
@@ -199,7 +214,7 @@ def run_for_group(tag_lists: List[List[str]], tag_list: List[str], tag_to_idx: D
     plt.title('Force-Directed Layout of 37 Codeforces Tags (PPMI-based)')
     plt.axis('off')
     plt.tight_layout()
-    plt.savefig(f'force_directed_tags_plot_{prefix}.png', dpi=300)
+    plt.savefig(os.path.join(group_dir, 'force_directed_tags_plot.png'), dpi=300)
     plt.close()
 
 
@@ -208,8 +223,16 @@ def run_for_group(tag_lists: List[List[str]], tag_list: List[str], tag_to_idx: D
 def main() -> None:
     # 1. CSV 파일 읽기
     df = pd.read_csv(
-        'filtered_problems.csv',
-        usecols=['problem_id', 'name', 'contestId', 'index', 'rating', 'tags', 'difficulty_group'],
+        PROBLEMS_PATH,
+        usecols=[
+            'problem_id',
+            'name',
+            'contestId',
+            'index',
+            'rating',
+            'tags',
+            'difficulty_group',
+        ],
     )
     df['tags'] = df['tags'].apply(parse_tags)
 
@@ -220,7 +243,13 @@ def main() -> None:
     # 3. 난이도 그룹별 시각화
     for group, df_group in df.groupby('difficulty_group'):
         safe_group = str(group).replace(' ', '_').replace('/', '_')
-        run_for_group(df_group['tags'].tolist(), tag_list, tag_to_idx, safe_group)
+        run_for_group(
+            df_group['tags'].tolist(),
+            tag_list,
+            tag_to_idx,
+            safe_group,
+            VIS_DIR,
+        )
 
 
 if __name__ == '__main__':
