@@ -21,6 +21,11 @@ import os
 
 import matplotlib.pyplot as plt
 import networkx as nx
+from networkx.algorithms import community
+from adjustText import adjust_text
+import seaborn as sns
+import plotly.graph_objects as go
+import plotly.express as px
 import numpy as np
 import pandas as pd
 import umap
@@ -105,6 +110,198 @@ def compute_tag_frequency(tag_lists: List[List[str]]) -> Counter:
     return counter
 
 
+def draw_force_directed(
+    G: nx.Graph,
+    marker_sizes: Dict[str, float],
+    deg_cent: Dict[str, float],
+    cluster_id: Dict[str, int],
+    out_dir: str,
+) -> None:
+    """Visualize graph using spring layout with Louvain coloring."""
+
+    pos = nx.spring_layout(G, weight="weight", seed=42)
+
+    node_sizes = [max(marker_sizes[n], 40) for n in G.nodes]
+    node_colors = [deg_cent[n] for n in G.nodes]
+
+    for u, v, w in G.edges(data="weight"):
+        width = np.sqrt(w) * 4
+        same_cluster = cluster_id[u] == cluster_id[v]
+        alpha = 0.80 if same_cluster else 0.30
+        nx.draw_networkx_edges(
+            G,
+            pos,
+            edgelist=[(u, v)],
+            width=width,
+            alpha=alpha,
+            edge_color="gray",
+        )
+
+    plt.figure(figsize=(8, 6))
+    nodes = nx.draw_networkx_nodes(
+        G,
+        pos,
+        node_size=node_sizes,
+        node_color=node_colors,
+        cmap="cool",
+        edgecolors="black",
+        linewidths=0.8,
+    )
+
+    texts = []
+    for n, (x, y) in pos.items():
+        texts.append(plt.text(x, y, n, fontsize=8))
+    adjust_text(texts, arrowprops=dict(arrowstyle="-"))
+
+    plt.colorbar(nodes, label="Degree Centrality")
+    plt.title("Force-Directed Tag Graph (Louvain)")
+    plt.axis("off")
+    plt.tight_layout()
+    plt.savefig(os.path.join(out_dir, "force_all_louvain.png"), dpi=300, bbox_inches="tight")
+    plt.close()
+
+    (
+        pd.DataFrame(
+            sorted(deg_cent.items(), key=lambda x: x[1], reverse=True)[:25],
+            columns=["tag", "degree_centrality"],
+        )
+    ).to_csv(os.path.join(out_dir, "centrality_table.csv"), index=False)
+
+
+def draw_umap_plotly(
+    M: np.ndarray,
+    tag_list: List[str],
+    marker_sizes: Dict[str, float],
+    tag_freq: Counter,
+    ratios: Dict[str, float],
+    deg_cent: Dict[str, float],
+    cluster_id: Dict[str, int],
+    pair_weights: List[tuple],
+    out_dir: str,
+) -> None:
+    """Interactive UMAP scatter with edge overlay."""
+
+    reducer = umap.UMAP(n_neighbors=10, min_dist=0.2, metric="cosine", random_state=42)
+    coords = reducer.fit_transform(M)
+
+    df = pd.DataFrame({
+        "tag": tag_list,
+        "x": coords[:, 0],
+        "y": coords[:, 1],
+        "freq": [tag_freq.get(t, 0) for t in tag_list],
+        "ratio": [ratios[t] for t in tag_list],
+        "marker_size": [marker_sizes[t] for t in tag_list],
+        "degree_centrality": [deg_cent[t] for t in tag_list],
+        "cluster_id": [cluster_id[t] for t in tag_list],
+    })
+    df.to_csv(os.path.join(out_dir, "tag_coords_umap.csv"), index=False)
+
+    # prepare edge traces
+    sorted_pairs = sorted(pair_weights, key=lambda x: x[2], reverse=True)
+    edges_all = sorted_pairs[:100]
+    edges_strong = sorted_pairs[:30]
+
+    def make_edge_trace(pairs):
+        xs, ys = [], []
+        for a, b, _ in pairs:
+            p1 = df.loc[df["tag"] == a, ["x", "y"]].values[0]
+            p2 = df.loc[df["tag"] == b, ["x", "y"]].values[0]
+            xs.extend([p1[0], p2[0], None])
+            ys.extend([p1[1], p2[1], None])
+        return go.Scattergl(x=xs, y=ys, mode="lines", line=dict(color="gray", width=1), hoverinfo="skip")
+
+    edge_trace_all = make_edge_trace(edges_all)
+    edge_trace_strong = make_edge_trace(edges_strong)
+    edge_trace_strong.visible = False
+
+    color_seq = px.colors.qualitative.Dark24
+    node_colors = [color_seq[cluster_id[t] % len(color_seq)] for t in tag_list]
+
+    node_trace = go.Scattergl(
+        x=df["x"],
+        y=df["y"],
+        mode="markers+text",
+        text=df["tag"],
+        textposition="top center",
+        hovertemplate=(
+            "tag: %{text}<br>freq: %{customdata[0]}<br>ratio: %{customdata[1]:.2f}<br>degree_centrality: %{customdata[2]:.3f}<extra></extra>"
+        ),
+        customdata=df[["freq", "ratio", "degree_centrality"]].values,
+        marker=dict(size=df["marker_size"], color=node_colors, line=dict(width=0.5, color="black")),
+    )
+
+    fig = go.Figure(data=[edge_trace_all, edge_trace_strong, node_trace])
+    fig.update_layout(
+        updatemenus=[
+            dict(
+                type="buttons",
+                direction="right",
+                buttons=[
+                    dict(label="All edges", method="update", args=[{"visible": [True, False, True]}]),
+                    dict(label="Strong only", method="update", args=[{"visible": [False, True, True]}]),
+                ],
+                showactive=True,
+                x=0.02,
+                y=1.1,
+            )
+        ],
+        title="Interactive UMAP of Tags",
+    )
+
+    fig.write_html(os.path.join(out_dir, "umap_interactive.html"))
+    fig.write_image(os.path.join(out_dir, "umap_static.png"), scale=2)
+
+
+def draw_heatmap(
+    M: np.ndarray,
+    tag_list: List[str],
+    tag_freq: Counter,
+    cluster_id: Dict[str, int],
+    tag_to_idx: Dict[str, int],
+    out_dir: str,
+) -> None:
+    """PPMI heatmap for top 15 tags with cluster color bars."""
+
+    top_tags = [t for t, _ in tag_freq.most_common(15)]
+
+    cluster_tags: Dict[int, List[str]] = {}
+    for t in top_tags:
+        cluster_tags.setdefault(cluster_id[t], []).append(t)
+
+    ordered_tags: List[str] = []
+    for cid in sorted(cluster_tags.keys()):
+        tags = cluster_tags[cid]
+        tags.sort(key=lambda x: -M[tag_to_idx[x]].sum())
+        ordered_tags.extend(tags)
+
+    idxs = [tag_to_idx[t] for t in ordered_tags]
+    sub = M[np.ix_(idxs, idxs)]
+
+    fig, ax = plt.subplots(figsize=(10, 8))
+    sns.heatmap(
+        sub,
+        annot=True,
+        fmt=".2f",
+        cmap="rocket_r",
+        xticklabels=ordered_tags,
+        yticklabels=ordered_tags,
+        ax=ax,
+    )
+    ax.set_title("PPMI Heatmap (Top 15 Tags)")
+
+    colors = px.colors.qualitative.Dark24
+    for i, tag in enumerate(ordered_tags):
+        c = colors[cluster_id[tag] % len(colors)]
+        rect_top = plt.Rectangle((i, -0.5), 1, 0.3, facecolor=c, transform=ax.transData, clip_on=False)
+        rect_bot = plt.Rectangle((i, len(ordered_tags)-0.5), 1, 0.3, facecolor=c, transform=ax.transData, clip_on=False)
+        ax.add_patch(rect_top)
+        ax.add_patch(rect_bot)
+
+    plt.tight_layout()
+    plt.savefig(os.path.join(out_dir, "ppmi_heatmap_top15.png"), dpi=300, bbox_inches="tight")
+    plt.close()
+
+
 def run_for_group(
     tag_lists: List[List[str]],
     tag_list: List[str],
@@ -124,7 +321,7 @@ def run_for_group(
     tag_freq = compute_tag_frequency(tag_lists)
     n_problems = len(tag_lists)
     ratios = {t: (tag_freq.get(t, 0) / n_problems) if n_problems else 0 for t in tag_list}
-    marker_sizes = {t: ratios[t] * 1000 + 50 for t in tag_list}
+    marker_sizes = {t: max(ratios[t] * 1000 + 50, 40) for t in tag_list}
 
     # save basic csv files
     tag_list_df = pd.DataFrame({
@@ -142,104 +339,41 @@ def run_for_group(
         os.path.join(group_dir, "ppmi_matrix.csv")
     )
 
-    # prepare a list of weighted pairs for later use
+    # prepare weighted tag pairs
     triu_i, triu_j = np.triu_indices_from(M, k=1)
     pair_weights = [
-        (tag_list[i], tag_list[j], M[i, j]) for i, j in zip(triu_i, triu_j) if M[i, j] > 0
+        (tag_list[i], tag_list[j], M[i, j])
+        for i, j in zip(triu_i, triu_j)
+        if M[i, j] > 0
     ]
 
-    # ========================= Improved UMAP =========================
-    # top 50 edges by weight for overlay
-    top_pairs = sorted(pair_weights, key=lambda x: x[2], reverse=True)[:50]
-    for nn in (5, 10, 15):
-        reducer = umap.UMAP(
-            n_neighbors=nn, min_dist=0.2, metric="cosine", random_state=42
-        )
-        coords = reducer.fit_transform(M)
-        coords_df = pd.DataFrame({
-            "tag": tag_list,
-            "x": coords[:, 0],
-            "y": coords[:, 1],
-            "freq": [tag_freq.get(t, 0) for t in tag_list],
-            "ratio": [ratios[t] for t in tag_list],
-            "marker_size": [marker_sizes[t] for t in tag_list],
-        })
-        coords_df.to_csv(
-            os.path.join(group_dir, f"tag_coords_umap_nn{nn}.csv"), index=False
-        )
-
-        plt.figure(figsize=(8, 6))
-        # overlay thin gray edges for strong pairs
-        for t_i, t_j, _ in top_pairs:
-            p1 = coords_df.loc[coords_df["tag"] == t_i, ["x", "y"]].values[0]
-            p2 = coords_df.loc[coords_df["tag"] == t_j, ["x", "y"]].values[0]
-            plt.plot([p1[0], p2[0]], [p1[1], p2[1]], color="gray", alpha=0.3, linewidth=0.5)
-
-        scatter = plt.scatter(
-            coords_df["x"],
-            coords_df["y"],
-            s=coords_df["marker_size"],
-            c=coords_df["ratio"],
-            cmap="viridis",
-            alpha=0.9,
-            edgecolors="k",
-        )
-        for _, row in coords_df.iterrows():
-            plt.text(row["x"], row["y"], row["tag"], fontsize=8, ha="center", va="center")
-
-        plt.colorbar(scatter, label="Frequency Ratio")
-        plt.title(
-            f"UMAP (n_neighbors={nn}, min_dist=0.2, metric='cosine')"
-        )
-        plt.tight_layout()
-        plt.savefig(os.path.join(group_dir, f"umap_tags_nn{nn}.png"), dpi=300)
-        plt.close()
-
-    # ====================== Improved Force-Directed ======================
+    # ----- Build graph and Louvain clusters -----
     G = nx.Graph()
-    G.add_nodes_from(tag_list)
-
-    weights = np.array([w for _, _, w in pair_weights])
-    threshold = np.percentile(weights, 70) if weights.size else 0
-
-    edges = []
     for t_i, t_j, w in pair_weights:
-        if w > threshold:
-            G.add_edge(t_i, t_j, weight=w)
-            edges.append((t_i, t_j, w))
+        G.add_edge(t_i, t_j, weight=w)
 
-    pd.DataFrame(edges, columns=["tag_i", "tag_j", "weight"]).to_csv(
-        os.path.join(group_dir, "edges_force_directed.csv"), index=False
-    )
-
-    pos = nx.spring_layout(G, weight="weight", seed=42, k=1)
     deg_cent = nx.degree_centrality(G)
+    communities = community.louvain_communities(G, weight="weight", seed=42)
+    cluster_id = {n: idx for idx, com in enumerate(communities) for n in com}
 
-    node_sizes = [marker_sizes[n] for n in G.nodes]
-    node_colors = [deg_cent[n] for n in G.nodes]
-    edge_weights = [G[u][v]["weight"] for u, v in G.edges]
-    max_w = max(edge_weights) if edge_weights else 1
-    edge_widths = [np.sqrt(w / max_w) * 4 for w in edge_weights]
+    pd.DataFrame(pair_weights, columns=["tag_i", "tag_j", "weight"]).to_csv(
+        os.path.join(group_dir, "edges_all.csv"), index=False
+    )
 
-    plt.figure(figsize=(8, 6))
-    nodes = nx.draw_networkx_nodes(
-        G,
-        pos,
-        node_size=node_sizes,
-        node_color=node_colors,
-        cmap="cool",
-        edgecolors="black",
+    # ----- Visualizations -----
+    draw_force_directed(G, marker_sizes, deg_cent, cluster_id, group_dir)
+    draw_umap_plotly(
+        M,
+        tag_list,
+        marker_sizes,
+        tag_freq,
+        ratios,
+        deg_cent,
+        cluster_id,
+        pair_weights,
+        group_dir,
     )
-    nx.draw_networkx_edges(G, pos, width=edge_widths, alpha=0.6)
-    nx.draw_networkx_labels(G, pos, font_size=8)
-    plt.colorbar(nodes, label="Degree Centrality")
-    plt.title("Force-Directed Layout of 37 Codeforces Tags (PPMI, thresh=70%)")
-    plt.axis("off")
-    plt.tight_layout()
-    plt.savefig(
-        os.path.join(group_dir, "force_directed_tags_improved.png"), dpi=300
-    )
-    plt.close()
+    draw_heatmap(M, tag_list, tag_freq, cluster_id, tag_to_idx, group_dir)
 
 
 # ------------------------- Main Pipeline -------------------------
