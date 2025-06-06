@@ -1,0 +1,11 @@
+# 가상환경
+.venv/
+venv/
+
+# PyCharm 설정
+.idea/
+
+# 파이썬 관련
+__pycache__/
+*.py[cod]
+*$py.class
