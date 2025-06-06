@@ -18,6 +18,8 @@ import csv
 from collections import Counter
 from typing import Dict, List
 import os
+import logging
+import time
 
 import matplotlib.pyplot as plt
 import networkx as nx
@@ -34,6 +36,9 @@ import umap
 PROBLEMS_PATH = os.path.join("data", "problems", "filtered_problems.csv")
 VIS_DIR = os.path.join("data", "visualization")
 os.makedirs(VIS_DIR, exist_ok=True)
+
+# Logging configuration
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s')
 
 
 # ------------------------- Helper Functions -------------------------
@@ -310,14 +315,21 @@ def run_for_group(
     out_root: str,
 ) -> None:
     """Compute matrices and visualizations for a subset of problems."""
+    start_time = time.time()
+    logging.info(f"시작: {prefix} 그룹 처리 중...")
+
     group_dir = os.path.join(out_root, prefix)
     os.makedirs(group_dir, exist_ok=True)
 
     # ----- Step 1: build co-occurrence and PPMI matrices -----
+    logging.info(f"  {prefix}: 공출현 행렬 계산 중...")
     C = build_cooccurrence_matrix(tag_lists, tag_to_idx)
+
+    logging.info(f"  {prefix}: PPMI 행렬 계산 중...")
     M = compute_ppmi_matrix(C)
 
     # ----- Step 2: tag frequencies and marker size -----
+    logging.info(f"  {prefix}: 태그 빈도 계산 중...")
     tag_freq = compute_tag_frequency(tag_lists)
     n_problems = len(tag_lists)
     ratios = {t: (tag_freq.get(t, 0) / n_problems) if n_problems else 0 for t in tag_list}
@@ -361,7 +373,10 @@ def run_for_group(
     )
 
     # ----- Visualizations -----
+    logging.info(f"  {prefix}: Force-directed 그래프 생성 중...")
     draw_force_directed(G, marker_sizes, deg_cent, cluster_id, group_dir)
+
+    logging.info(f"  {prefix}: UMAP 시각화 생성 중...")
     draw_umap_plotly(
         M,
         tag_list,
@@ -373,12 +388,17 @@ def run_for_group(
         pair_weights,
         group_dir,
     )
+    logging.info(f"  {prefix}: 히트맵 생성 중...")
     draw_heatmap(M, tag_list, tag_freq, cluster_id, tag_to_idx, group_dir)
+
+    elapsed = time.time() - start_time
+    logging.info(f"완료: {prefix} 그룹 처리 (소요시간: {elapsed:.2f}초)")
 
 
 # ------------------------- Main Pipeline -------------------------
 
 def main() -> None:
+    logging.info("프로그램 시작")
     # 1. CSV 파일 읽기
     df = pd.read_csv(
         PROBLEMS_PATH,
@@ -398,12 +418,16 @@ def main() -> None:
     tag_list = build_tag_list(df['tags'])
     tag_to_idx = {tag: idx for idx, tag in enumerate(tag_list)}
 
-    # 3. 전체 데이터 시각화
+    logging.info("전체 데이터 시각화 시작")
     run_for_group(df['tags'].tolist(), tag_list, tag_to_idx, 'All', VIS_DIR)
 
-    # 4. 난이도 그룹별 시각화
-    for group, df_group in df.groupby('difficulty_group'):
+    logging.info("난이도 그룹별 시각화 시작")
+    difficulty_groups = df['difficulty_group'].unique()
+    logging.info(f"총 {len(difficulty_groups)}개 난이도 그룹 처리 예정: {difficulty_groups}")
+
+    for i, (group, df_group) in enumerate(df.groupby('difficulty_group')):
         safe_group = str(group).replace(' ', '_').replace('/', '_')
+        logging.info(f"난이도 그룹 처리 중 ({i+1}/{len(difficulty_groups)}): {group}")
         run_for_group(
             df_group['tags'].tolist(),
             tag_list,
@@ -411,6 +435,8 @@ def main() -> None:
             safe_group,
             VIS_DIR,
         )
+
+    logging.info("모든 처리 완료")
 
 
 if __name__ == '__main__':
