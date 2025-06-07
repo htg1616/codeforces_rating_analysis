@@ -4,6 +4,7 @@ import os
 import random
 import time
 from typing import Dict, List
+import logging
 
 import requests
 from dotenv import load_dotenv
@@ -18,6 +19,8 @@ ENDPOINT = "https://codeforces.com/api/problemset.problems"
 PROBLEMS_DIR = os.path.join("data", "problems")
 os.makedirs(PROBLEMS_DIR, exist_ok=True)
 
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s')
+
 DIFFICULTY_GROUPS = [
     (1199, "Newbie"),
     (1399, "Pupil"),
@@ -30,6 +33,7 @@ DIFFICULTY_GROUPS = [
 
 
 def difficulty_group(rating: int) -> str:
+    """Map a numeric rating to its human-readable difficulty group."""
     for limit, group in DIFFICULTY_GROUPS:
         if rating <= limit:
             return group
@@ -37,6 +41,7 @@ def difficulty_group(rating: int) -> str:
 
 
 def build_params() -> Dict[str, str]:
+    """Return authentication query parameters if API credentials exist."""
     if not api_key or not api_secret:
         return {}
     params = {"apiKey": api_key, "time": int(time.time())}
@@ -49,14 +54,20 @@ def build_params() -> Dict[str, str]:
 
 
 def fetch_problems() -> List[Dict]:
+    """Fetch the full list of problems from the Codeforces API."""
     params = build_params()
-    resp = requests.get(ENDPOINT, params=params, timeout=15)
-    resp.raise_for_status()
+    try:
+        resp = requests.get(ENDPOINT, params=params, timeout=15)
+        resp.raise_for_status()
+    except requests.RequestException as e:
+        logging.error("Network error while fetching problems: %s", e)
+        raise
     result = resp.json().get("result", {})
     return result.get("problems", [])
 
 
 def main() -> None:
+    """Fetch problems and write a filtered subset to CSV."""
     problems = fetch_problems()
     filtered = [
         p
