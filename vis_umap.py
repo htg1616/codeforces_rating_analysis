@@ -113,31 +113,41 @@ def create_matplotlib_static(df, pair_weights, cluster_id, out_dir):
             p2 = df.loc[df["tag"] == b, ["x", "y"]].values[0]
             # 가중치에 따라 선 두께와 투명도 조절
             line_alpha = 0.2 + 0.4 * (w / sorted_pairs[0][2])
-            plt.plot([p1[0], p2[0]], [p1[1], p2[1]], color='gray', alpha=line_alpha, linewidth=0.8)
+            line_width = 0.5 + 1.0 * (w / sorted_pairs[0][2])  # 가중치에 따라 선 두께 변화
+            plt.plot([p1[0], p2[0]], [p1[1], p2[1]], color='gray', alpha=line_alpha, linewidth=line_width, zorder=1)
         except IndexError:
             continue
 
-    # 3. 노드 그리기
+    # 3. 노드 그리기 (zorder=5로 간선 위에 표시)
     for i, row in df.iterrows():
         tag = row["tag"]
         cluster = cluster_id.get(tag, 0)
         color = cluster_colors.get(cluster, "#333333")
         size = row["marker_size"] * 0.8
-        plt.scatter(row["x"], row["y"], s=size, color=color, edgecolors='black', linewidths=0.5, alpha=0.9, zorder=10)
+        plt.scatter(row["x"], row["y"], s=size, color=color, edgecolors='black', linewidths=0.5, alpha=0.9, zorder=5)
 
     # 4. 텍스트 라벨 (겹치지 않게 조정)
     texts = []
     for i, row in df.iterrows():
-        texts.append(plt.text(row["x"], row["y"], row["tag"], fontsize=9, ha='center', va='bottom', zorder=11))
+        # 텍스트 크기를 9에서 8로 줄이고, zorder를 10으로 설정
+        # 배경색 추가로 텍스트 가독성 향상
+        texts.append(plt.text(
+            row["x"], row["y"],
+            row["tag"],
+            fontsize=8,
+            ha='center',
+            va='center',
+            zorder=10,
+            bbox=dict(facecolor='white', alpha=0.7, edgecolor='none', pad=1)
+        ))
 
-    # 텍스트 겹침 최소화 (세 번 시도)
-    for _ in range(3):
-        try:
-            adjust_text(texts,
-                        arrowprops=dict(arrowstyle="-", color="gray", alpha=0.5),
-                        force_text=0.5)
-        except:
-            break
+    # force_directed와 유사하게 텍스트 배치 방식 단순화
+    adjust_text(
+        texts,
+        arrowprops=dict(arrowstyle="-", color="gray", alpha=0.6, lw=0.5),
+        expand_text=(1.1, 1.1),  # 텍스트 간 간격 확대
+        expand_points=(1.2, 1.2)  # 포인트와 텍스트 간 간격 확대
+    )
 
     plt.title("UMAP 태그 시각화")
     plt.axis('off')

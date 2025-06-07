@@ -56,26 +56,65 @@ def draw_heatmap(
     idxs = [tag_to_idx[t] for t in ordered_tags]
     sub = M[np.ix_(idxs, idxs)]
 
-    fig, ax = plt.subplots(figsize=(10, 8))
-    sns.heatmap(
-        sub,
+    # 클러스터 색상 맵 생성
+    colors = px.colors.qualitative.Dark24
+
+    # 각 태그별 클러스터 ID에 따른 색상 매핑 생성
+    cluster_colors = {tag: colors[cluster_id[tag] % len(colors)] for tag in ordered_tags}
+
+    # 데이터프레임 생성 및 클러스터 열 추가
+    df_heatmap = pd.DataFrame(sub, index=ordered_tags, columns=ordered_tags)
+
+    # 클러스터 정보 시리즈 생성 (열과 행에 사용)
+    cluster_series = pd.Series({tag: cluster_id[tag] for tag in ordered_tags}, name='Cluster')
+
+    # 클러스터 색상 팔레트 생성
+    unique_clusters = sorted(set(cluster_id[tag] for tag in ordered_tags))
+    cluster_palette = {cid: colors[cid % len(colors)] for cid in unique_clusters}
+
+    # clustermap 생성
+    cm = sns.clustermap(
+        df_heatmap,
         annot=True,
         fmt=".2f",
         cmap="rocket_r",
-        xticklabels=ordered_tags,
-        yticklabels=ordered_tags,
-        ax=ax,
+        figsize=(12, 10),
+        row_cluster=False,  # 행 클러스터링 끄기 (원래 순서 유지)
+        col_cluster=False,  # 열 클러스터링 끄기 (원래 순서 유지)
+        row_colors=cluster_series.map(cluster_palette),  # 행에 클러스터 색상 추가
+        col_colors=cluster_series.map(cluster_palette),  # 열에 클러스터 색상 추가
+        annot_kws={"size": 9},
+        cbar_kws={"label": "PPMI 값"},
+        xticklabels=1,  # 모든 x 라벨 표시
+        yticklabels=1   # 모든 y 라벨 표시
     )
-    ax.set_title("PPMI Heatmap (Top 15 Tags)")
 
-    colors = px.colors.qualitative.Dark24
-    for i, tag in enumerate(ordered_tags):
-        c = colors[cluster_id[tag] % len(colors)]
-        rect_top = plt.Rectangle((i, -0.5), 1, 0.3, facecolor=c, transform=ax.transData, clip_on=False)
-        rect_bot = plt.Rectangle((i, len(ordered_tags) - 0.5), 1, 0.3, facecolor=c, transform=ax.transData, clip_on=False)
-        ax.add_patch(rect_top)
-        ax.add_patch(rect_bot)
+    # X축 라벨 회전
+    cm.ax_heatmap.set_xticklabels(
+        cm.ax_heatmap.get_xticklabels(),
+        rotation=45,
+        ha='right',
+        rotation_mode='anchor'
+    )
 
+    # 제목 추가
+    plt.suptitle("PPMI Heatmap (Top 15 Tags)", fontsize=14, y=0.95)
+
+    # 클러스터 범례 추가
+    handles = [
+        mpl.patches.Patch(color=cluster_palette[cid], label=f'Cluster {cid}')
+        for cid in sorted(unique_clusters)
+    ]
+    plt.legend(
+        handles=handles,
+        title="Clusters",
+        bbox_to_anchor=(1.05, 1),
+        loc='upper left'
+    )
+
+    # 여백 조정
     plt.tight_layout()
+
+    # 저장 및 종료
     plt.savefig(os.path.join(out_dir, "ppmi_heatmap.png"), dpi=300, bbox_inches="tight")
     plt.close()
