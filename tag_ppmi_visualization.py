@@ -9,7 +9,7 @@ produces
 2. an improved force-directed graph
 3. several improved UMAP projections
 
-All outputs are stored under ``data/visualization/<group>``.
+Images are stored under ``data/visualization/<group>`` and CSV summaries under ``data/<group>``.
 """
 
 from __future__ import annotations
@@ -57,6 +57,8 @@ def run_for_group(
 
     group_dir = os.path.join(out_root, prefix)
     os.makedirs(group_dir, exist_ok=True)
+    data_dir = os.path.join("data", prefix)
+    os.makedirs(data_dir, exist_ok=True)
 
     # ----- Step 1: build co-occurrence and PPMI matrices -----
     logging.info(f"  {prefix}: 공출현 행렬 계산 중...")
@@ -136,7 +138,7 @@ def run_for_group(
 
     # ----- Visualizations -----
     logging.info(f"  {prefix}: Force-directed 그래프 생성 중...")
-    draw_force_directed(G, marker_sizes, deg_cent, cluster_id, group_dir)
+    draw_force_directed(G, marker_sizes, deg_cent, cluster_id, group_dir, data_dir)
 
     logging.info(f"  {prefix}: UMAP 시각화 생성 중...")
     draw_umap_plotly(
@@ -149,6 +151,7 @@ def run_for_group(
         cluster_id,
         pair_weights,
         group_dir,
+        data_dir,
     )
     logging.info(f"  {prefix}: 히트맵 생성 중...")
     draw_heatmap(M, tag_list, tag_freq, cluster_id, tag_to_idx, group_dir)

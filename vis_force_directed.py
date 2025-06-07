@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Dict
+from typing import Dict, Optional
 import os
 import logging
 
@@ -19,6 +19,7 @@ def draw_force_directed(
     deg_cent: Dict[str, float],
     cluster_id: Dict[str, int],
     out_dir: str,
+    data_dir: Optional[str] = None,
 ) -> None:
     """Visualize graph using spring layout with Louvain coloring."""
 
@@ -69,10 +70,13 @@ def draw_force_directed(
     plt.savefig(os.path.join(out_dir, "force_directed.png"), dpi=300, bbox_inches="tight")
     plt.close()
 
-    pd.DataFrame(
+    df = pd.DataFrame(
         sorted(deg_cent.items(), key=lambda x: x[1], reverse=True)[:25],
         columns=["tag", "degree_centrality"],
-    ).to_csv(os.path.join(out_dir, "centrality_table.csv"), index=False)
+    )
+    if data_dir is not None:
+        os.makedirs(data_dir, exist_ok=True)
+        df.to_csv(os.path.join(data_dir, "centrality_table.csv"), index=False)
 
 
 def main() -> None:
@@ -84,7 +88,9 @@ def main() -> None:
 
     in_dir = os.path.join("data", args.group)
     out_dir = os.path.join("figures", args.group)
+    data_dir = os.path.join("data", args.group)
     os.makedirs(out_dir, exist_ok=True)
+    os.makedirs(data_dir, exist_ok=True)
 
     tag_df = pd.read_csv(os.path.join(in_dir, "tag_list.csv"))
     tag_list = tag_df["tag"].tolist()
@@ -97,7 +103,7 @@ def main() -> None:
     for _, row in edges.iterrows():
         G.add_edge(row["tag_i"], row["tag_j"], weight=row["weight"])
 
-    draw_force_directed(G, marker_sizes, deg_cent, cluster_id, out_dir)
+    draw_force_directed(G, marker_sizes, deg_cent, cluster_id, out_dir, data_dir)
 
 
 if __name__ == "__main__":

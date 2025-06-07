@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Dict, List
+from typing import Dict, List, Optional
 import os
 import logging
 import sys
@@ -51,6 +51,7 @@ def draw_umap_plotly(
     cluster_id: Dict[str, int],
     pair_weights: List[tuple],
     out_dir: str,
+    data_dir: Optional[str] = None,
 ) -> None:
     """Interactive UMAP scatter with edge overlay."""
 
@@ -78,7 +79,9 @@ def draw_umap_plotly(
             "degree_centrality": [deg_cent[t] for t in tag_list],
             "cluster_id": [cluster_id[t] for t in tag_list],
         })
-        df.to_csv(os.path.join(out_dir, "tag_coords_umap.csv"), index=False)
+        if data_dir is not None:
+            os.makedirs(data_dir, exist_ok=True)
+            df.to_csv(os.path.join(data_dir, "tag_coords_umap.csv"), index=False)
 
         # 3. matplotlib 정적 이미지 생성 - 항상 실행됨
         logging.info("  UMAP: matplotlib 정적 이미지 생성 중...")
@@ -335,7 +338,9 @@ def main() -> None:
 
     in_dir = os.path.join("data", args.group)
     out_dir = os.path.join("figures", args.group)
+    data_dir = os.path.join("data", args.group)
     os.makedirs(out_dir, exist_ok=True)
+    os.makedirs(data_dir, exist_ok=True)
 
     tag_df = pd.read_csv(os.path.join(in_dir, "tag_list.csv"))
     tag_list = tag_df["tag"].tolist()
@@ -358,6 +363,7 @@ def main() -> None:
         cluster_id,
         pair_weights,
         out_dir,
+        data_dir,
     )
 
 
