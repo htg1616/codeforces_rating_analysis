@@ -54,6 +54,9 @@ def draw_umap_plotly(
     data_dir: Optional[str] = None,
 ) -> None:
     """Interactive UMAP scatter with edge overlay."""
+    if len(tag_list) < 2:
+        logging.warning("  UMAP: 태그가 부족하여 UMAP을 생성할 수 없습니다.")
+        return
 
     try:
         # 1. UMAP 차원 축소 - 더 간단한 파라미터로
@@ -165,52 +168,58 @@ def create_matplotlib_static(df, pair_weights, cluster_id, out_dir):
 
 def create_plotly_html(df, pair_weights, cluster_id, out_dir):
     """Plotly 인터랙티브 HTML 생성 (정적 이미지 생성 없음)"""
-    # 1. 간선 데이터 준비
-    sorted_pairs = sorted(pair_weights, key=lambda x: x[2], reverse=True)
-    edges_all = sorted_pairs[:120]
-    edges_strong = sorted_pairs[:40]
+    # 존재하는 태그 확인
+    existing_tags = set(df["tag"])
 
-    # 2. 간선 트레이스 생성
-    xs_all, ys_all = [], []
-    for a, b, w in edges_all:
-        try:
-            # 양쪽 태그가 모두 존재하는지 먼저 확인
-            if not df[df["tag"] == a].empty and not df[df["tag"] == b].empty:
+    # 1. 간선 데이터 준비 - 존재하는 태그 간의 관계만 필터링
+    sorted_pairs = sorted(pair_weights, key=lambda x: x[2], reverse=True)
+    edges_all = [(a, b, w) for a, b, w in sorted_pairs[:120]
+                 if a in existing_tags and b in existing_tags]
+    edges_strong = [(a, b, w) for a, b, w in sorted_pairs[:40]
+                    if a in existing_tags and b in existing_tags]
+
+    # 간선이 없으면 빈 트레이스 생성
+    if not edges_all:
+        logging.info("  UMAP: 유효한 간선이 없습니다. 빈 간선 트레이스를 생성합니다.")
+        edge_trace_all = go.Scatter(x=[], y=[], mode="lines", line=dict(color="rgba(180,180,180,0.3)", width=1))
+        edge_trace_strong = go.Scatter(x=[], y=[], mode="lines", line=dict(color="rgba(100,100,100,0.7)", width=1.5), visible=False)
+    else:
+        # 2. 간선 트레이스 생성
+        xs_all, ys_all = [], []
+        for a, b, w in edges_all:
+            try:
                 p1 = df.loc[df["tag"] == a, ["x", "y"]].values[0]
                 p2 = df.loc[df["tag"] == b, ["x", "y"]].values[0]
                 xs_all.extend([p1[0], p2[0], None])
                 ys_all.extend([p1[1], p2[1], None])
-        except IndexError:
-            continue
+            except (IndexError, ValueError):
+                continue
 
-    xs_strong, ys_strong = [], []
-    for a, b, w in edges_strong:
-        try:
-            if not df[df["tag"] == a].empty and not df[df["tag"] == b].empty:
+        xs_strong, ys_strong = [], []
+        for a, b, w in edges_strong:
+            try:
                 p1 = df.loc[df["tag"] == a, ["x", "y"]].values[0]
                 p2 = df.loc[df["tag"] == b, ["x", "y"]].values[0]
                 xs_strong.extend([p1[0], p2[0], None])
                 ys_strong.extend([p1[1], p2[1], None])
-        except IndexError:
-            continue
+            except (IndexError, ValueError):
+                continue
 
-    edge_trace_all = go.Scatter(
-        x=xs_all, y=ys_all,
-        mode="lines",
-        line=dict(color="rgba(180,180,180,0.3)", width=1),
-        hoverinfo="none"
-    )
-    # 'layer' 속성 제거 - Scatter 객체에서는 지원하지 않음
-    # 간선은 추가 순서에 따라 자동으로 노드 아래에 배치됨
+        edge_trace_all = go.Scatter(
+            x=xs_all, y=ys_all,
+            mode="lines",
+            line=dict(color="rgba(180,180,180,0.3)", width=1),
+            hoverinfo="none"
+        )
 
-    edge_trace_strong = go.Scatter(
-        x=xs_strong, y=ys_strong,
-        mode="lines",
-        line=dict(color="rgba(100,100,100,0.7)", width=1.5),
-        hoverinfo="none",
-        visible=False
-    )
-    # 'layer' 속성 제거
+        edge_trace_strong = go.Scatter(
+            x=xs_strong, y=ys_strong,
+            mode="lines",
+            line=dict(color="rgba(100,100,100,0.7)", width=1.5),
+            hoverinfo="none",
+            visible=False
+        )
+
 
     # 3. 노드 트레이스
     color_seq = px.colors.qualitative.Plotly

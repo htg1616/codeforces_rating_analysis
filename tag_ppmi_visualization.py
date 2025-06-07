@@ -63,9 +63,25 @@ def run_for_group(
     data_dir = os.path.join("data", prefix)
     os.makedirs(data_dir, exist_ok=True)
 
-    # ----- Step 1: build co-occurrence and PPMI matrices -----
+    # 이 그룹에서 실제 사용된 태그만 필터링
+    used_tags = set()
+    for tags in tag_lists:
+        used_tags.update(tags)
+
+    # 전체 태그 리스트에서 이 그룹에 존재하는 태그만 필터링
+    filtered_tag_list = [tag for tag in tag_list if tag in used_tags]
+    filtered_tag_to_idx = {tag: idx for idx, tag in enumerate(filtered_tag_list)}
+
+    # 존재하는 태그가 없으면 경고 출력 후 리턴
+    if not filtered_tag_list:
+        logging.warning(f"  {prefix}: 사용된 태그가 없습니다.")
+        return
+
+    logging.info(f"  {prefix}: 전체 태그 {len(tag_list)}개 중 {len(filtered_tag_list)}개 사용됨")
+
+    # ----- Step 1: build co-occurrence and PPMI matrices with filtered tags -----
     logging.info(f"  {prefix}: 공출현 행렬 계산 중...")
-    C = build_cooccurrence_matrix(tag_lists, tag_to_idx)
+    C = build_cooccurrence_matrix(tag_lists, filtered_tag_to_idx)
 
     logging.info(f"  {prefix}: PPMI 행렬 계산 중...")
     M = compute_ppmi_matrix(C)
@@ -74,42 +90,37 @@ def run_for_group(
     logging.info(f"  {prefix}: 태그 빈도 계산 중...")
     tag_freq = compute_tag_frequency(tag_lists)
     n_problems = len(tag_lists)
-    ratios = {t: (tag_freq.get(t, 0) / n_problems) if n_problems else 0 for t in tag_list}
-    marker_sizes = {t: max(ratios[t] * 1000 + 50, 40) for t in tag_list}
+    ratios = {t: (tag_freq.get(t, 0) / n_problems) if n_problems else 0 for t in filtered_tag_list}
+    marker_sizes = {t: max(ratios[t] * 1000 + 50, 40) for t in filtered_tag_list}
 
-    # save basic csv files
+    # CSV 파일 저장 - data/<group> 디렉토리에 저장
     tag_list_df = pd.DataFrame({
-        "tag": tag_list,
-        "freq": [tag_freq.get(t, 0) for t in tag_list],
-        "ratio": [ratios[t] for t in tag_list],
-        "marker_size": [marker_sizes[t] for t in tag_list],
+        "tag": filtered_tag_list,
+        "freq": [tag_freq.get(t, 0) for t in filtered_tag_list],
+        "ratio": [ratios[t] for t in filtered_tag_list],
+        "marker_size": [marker_sizes[t] for t in filtered_tag_list],
     })
     tag_list_df.to_csv(os.path.join(data_dir, "tag_list.csv"), index=False)
 
-    pd.DataFrame(C, index=tag_list, columns=tag_list).to_csv(
+    pd.DataFrame(C, index=filtered_tag_list, columns=filtered_tag_list).to_csv(
         os.path.join(data_dir, "cooccurrence_matrix.csv")
     )
-    pd.DataFrame(M, index=tag_list, columns=tag_list).to_csv(
+    pd.DataFrame(M, index=filtered_tag_list, columns=filtered_tag_list).to_csv(
         os.path.join(data_dir, "ppmi_matrix.csv")
     )
 
-    # prepare weighted tag pairs
-    triu_i, triu_j = np.triu_indices_from(M, k=1)
-    # tag_ppmi_visualization.py의 run_for_group 함수 내부 수정
-    # pair_weights 부분을 다음과 같이 변경:
-
     # prepare weighted tag pairs using Top-K method
     logging.info(f"  {prefix}: Top-K 간선 선택 중...")
-    ppmi_raw = M.copy()  # 원본 PPMI 행렬 사용
-    n = len(tag_list)
+    ppmi_raw = M.copy()
+    n = len(filtered_tag_list)  # 필터링된 태그 리스트의 길이를 사용
     flat = ppmi_raw[np.triu_indices_from(ppmi_raw, k=1)]
-    top_k = 120  # 태그 37개면 120개가 적당
+    top_k = min(120, len(flat))  # flat이 비어있을 경우 처리
     idx_k = np.argpartition(flat, -top_k)[-top_k:] if len(flat) > top_k else np.arange(len(flat))
     thr = flat[idx_k].min() if len(flat) > 0 else 0
 
-    # 간선 필터링 - 임계값 이상인 것만
+    # 간선 필터링 - 필터링된 태그 리스트를 사용
     pair_weights = [
-        (tag_list[i], tag_list[j], ppmi_raw[i, j])
+        (filtered_tag_list[i], filtered_tag_list[j], ppmi_raw[i, j])
         for i in range(n)
         for j in range(i + 1, n)
         if ppmi_raw[i, j] >= thr and ppmi_raw[i, j] > 0
@@ -144,21 +155,27 @@ def run_for_group(
     draw_force_directed(G, marker_sizes, deg_cent, cluster_id, group_dir, data_dir)
 
     logging.info(f"  {prefix}: UMAP 시각화 생성 중...")
-    draw_umap_plotly(
-        M,
-        tag_list,
-        marker_sizes,
-        tag_freq,
-        ratios,
-        deg_cent,
-        cluster_id,
-        pair_weights,
-        group_dir,
-        data_dir,
-    )
-    logging.info(f"  {prefix}: 히트맵 생성 중...")
-    draw_heatmap(M, tag_list, tag_freq, cluster_id, tag_to_idx, group_dir)
+    try:
+        draw_umap_plotly(
+            M,
+            filtered_tag_list,  # tag_list 대신 filtered_tag_list 사용
+            marker_sizes,
+            tag_freq,
+            ratios,
+            deg_cent,
+            cluster_id,
+            pair_weights,
+            group_dir,
+            data_dir,
+        )
+    except Exception as e:
+        logging.error(f"  {prefix}: UMAP 시각화 실패: {str(e)}")
 
+    logging.info(f"  {prefix}: 히트맵 생성 중...")
+    try:
+        draw_heatmap(M, filtered_tag_list, tag_freq, cluster_id, filtered_tag_to_idx, group_dir)
+    except Exception as e:
+        logging.error(f"  {prefix}: 히트맵 시각화 실패: {str(e)}")
     elapsed = time.time() - start_time
     logging.info(f"완료: {prefix} 그룹 처리 (소요시간: {elapsed:.2f}초)")
 
