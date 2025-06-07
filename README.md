@@ -2,6 +2,14 @@
 
 Utilities to fetch Codeforces problem data and visualize tag relationships.
 
+## Installation
+
+Install the required Python packages with:
+
+```bash
+pip install -r requirements.txt
+```
+
 ## Directory Structure
 
 ```
