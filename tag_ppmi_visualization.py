@@ -9,7 +9,7 @@ produces
 2. an improved force-directed graph
 3. several improved UMAP projections
 
-Images are stored under ``data/visualization/<group>`` and CSV summaries under ``data/<group>``.
+Images are stored under ``figures/<group>`` and CSV summaries under ``data/<group>``.
 """
 
 from __future__ import annotations
@@ -37,7 +37,7 @@ from vis_heatmap import draw_heatmap
 
 # Paths
 PROBLEMS_PATH = os.path.join("data", "problems", "filtered_problems.csv")
-VIS_DIR = os.path.join("data", "visualization")
+VIS_DIR = os.path.join("figures")  # data/visualization에서 figures로 변경
 os.makedirs(VIS_DIR, exist_ok=True)
 
 # Logging configuration
@@ -55,8 +55,11 @@ def run_for_group(
     start_time = time.time()
     logging.info(f"시작: {prefix} 그룹 처리 중...")
 
+    # 시각화 결과물 저장 경로
     group_dir = os.path.join(out_root, prefix)
     os.makedirs(group_dir, exist_ok=True)
+
+    # 데이터 파일 저장 경로
     data_dir = os.path.join("data", prefix)
     os.makedirs(data_dir, exist_ok=True)
 
@@ -81,13 +84,13 @@ def run_for_group(
         "ratio": [ratios[t] for t in tag_list],
         "marker_size": [marker_sizes[t] for t in tag_list],
     })
-    tag_list_df.to_csv(os.path.join(group_dir, "tag_list.csv"), index=False)
+    tag_list_df.to_csv(os.path.join(data_dir, "tag_list.csv"), index=False)
 
     pd.DataFrame(C, index=tag_list, columns=tag_list).to_csv(
-        os.path.join(group_dir, "cooccurrence_matrix.csv")
+        os.path.join(data_dir, "cooccurrence_matrix.csv")
     )
     pd.DataFrame(M, index=tag_list, columns=tag_list).to_csv(
-        os.path.join(group_dir, "ppmi_matrix.csv")
+        os.path.join(data_dir, "ppmi_matrix.csv")
     )
 
     # prepare weighted tag pairs
@@ -133,7 +136,7 @@ def run_for_group(
     cluster_id = {n: idx for idx, com in enumerate(communities) for n in com}
 
     pd.DataFrame(pair_weights, columns=["tag_i", "tag_j", "weight"]).to_csv(
-        os.path.join(group_dir, "edges_all.csv"), index=False
+        os.path.join(data_dir, "edges_all.csv"), index=False
     )
 
     # ----- Visualizations -----
