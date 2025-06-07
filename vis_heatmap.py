@@ -118,3 +118,29 @@ def draw_heatmap(
     # 저장 및 종료
     plt.savefig(os.path.join(out_dir, "ppmi_heatmap.png"), dpi=300, bbox_inches="tight")
     plt.close()
+
+
+def main() -> None:
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Draw heatmap for a difficulty group")
+    parser.add_argument("group", help="Difficulty group name, e.g. All or Pupil")
+    args = parser.parse_args()
+
+    in_dir = os.path.join("data", args.group)
+    out_dir = os.path.join("figures", args.group)
+    os.makedirs(out_dir, exist_ok=True)
+
+    tag_df = pd.read_csv(os.path.join(in_dir, "tag_list.csv"))
+    tag_list = tag_df["tag"].tolist()
+    tag_freq = dict(zip(tag_df["tag"], tag_df["freq"]))
+    cluster_id = dict(zip(tag_df["tag"], tag_df["cluster_id"]))
+    tag_to_idx = {t: i for i, t in enumerate(tag_list)}
+
+    M = pd.read_csv(os.path.join(in_dir, "ppmi_matrix.csv"), index_col=0).values
+
+    draw_heatmap(M, tag_list, tag_freq, cluster_id, tag_to_idx, out_dir)
+
+
+if __name__ == "__main__":
+    main()

@@ -324,3 +324,42 @@ def create_plotly_html(df, pair_weights, cluster_id, out_dir):
     fig.write_html(html_path)
     logging.info(f"  UMAP: HTML 파일 저장 완료: {html_path}")
 
+
+
+def main() -> None:
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Draw UMAP visualization for a difficulty group")
+    parser.add_argument("group", help="Difficulty group name, e.g. All or Pupil")
+    args = parser.parse_args()
+
+    in_dir = os.path.join("data", args.group)
+    out_dir = os.path.join("figures", args.group)
+    os.makedirs(out_dir, exist_ok=True)
+
+    tag_df = pd.read_csv(os.path.join(in_dir, "tag_list.csv"))
+    tag_list = tag_df["tag"].tolist()
+    marker_sizes = dict(zip(tag_df["tag"], tag_df["marker_size"]))
+    tag_freq = dict(zip(tag_df["tag"], tag_df["freq"]))
+    ratios = dict(zip(tag_df["tag"], tag_df["ratio"]))
+    deg_cent = dict(zip(tag_df["tag"], tag_df["degree_centrality"]))
+    cluster_id = dict(zip(tag_df["tag"], tag_df["cluster_id"]))
+
+    M = pd.read_csv(os.path.join(in_dir, "ppmi_matrix.csv"), index_col=0).values
+    pair_weights = pd.read_csv(os.path.join(in_dir, "edges_all.csv")).values.tolist()
+
+    draw_umap_plotly(
+        M,
+        tag_list,
+        marker_sizes,
+        tag_freq,
+        ratios,
+        deg_cent,
+        cluster_id,
+        pair_weights,
+        out_dir,
+    )
+
+
+if __name__ == "__main__":
+    main()
