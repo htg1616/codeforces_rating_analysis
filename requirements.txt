@@ -1,0 +1,8 @@
+requests
+pandas
+numpy
+networkx
+umap-learn
+seaborn
+matplotlib
+python-dotenv
