@@ -10,6 +10,26 @@ Install the required Python packages with:
 pip install -r requirements.txt
 ```
 
+## API Authentication
+
+Authenticated requests require a `.env` file in the project root that sets
+`CODEFORCES_API_KEY` and `CODEFORCES_API_SECRET`:
+
+```bash
+CODEFORCES_API_KEY=<your key>
+CODEFORCES_API_SECRET=<your secret>
+```
+
+`fetch_codeforces_problems.py` loads these variables with `load_dotenv`
+(see lines 9-13):
+
+```python
+from dotenv import load_dotenv
+load_dotenv()
+api_key = os.getenv("CODEFORCES_API_KEY")
+api_secret = os.getenv("CODEFORCES_API_SECRET")
+```
+
 ## Directory Structure
 
 ```
